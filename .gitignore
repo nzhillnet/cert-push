@@ -1,0 +1,5 @@
+hosts.conf.yaml
+*.log
+.secrets/
+__pycache__/
+*.pyc

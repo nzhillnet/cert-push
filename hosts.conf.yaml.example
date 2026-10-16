@@ -1,0 +1,75 @@
+domain: internal.example.com
+cloudflare_zone: example.com  # a subdomain usually can't be its own CF zone (Enterprise-only); the API token scopes to the parent zone
+
+# All hosts here use deploy_user: root, no sudo needed in reload_cmd.
+# SSH key: ~/.ssh/cert-deploy — add its pubkey to /root/.ssh/authorized_keys on each host.
+# Standard cert path: /etc/ssl/<hostname>/ (cert.pem, key.pem, fullchain.pem).
+# Exceptions are noted per host below.
+
+hosts:
+
+  # ---------------------------------------------------------------------------
+  # Standard host — nginx reverse proxy, PEM certs, simple reload
+  # ---------------------------------------------------------------------------
+  - name: app1
+    deploy_target: 192.0.2.11
+    deploy_user: root
+    remote_cert_path: /etc/ssl/app1/
+    remote_key_path: /etc/ssl/app1/
+    reload_cmd: "systemctl reload nginx"
+
+  # ---------------------------------------------------------------------------
+  # An app that wants a PKCS12 bundle built from the PEM files on reload
+  # (e.g. a .NET-based app with no native PEM support)
+  # ---------------------------------------------------------------------------
+  - name: app2
+    deploy_target: 192.0.2.12
+    deploy_user: root
+    remote_cert_path: /etc/ssl/app2/
+    remote_key_path: /etc/ssl/app2/
+    reload_cmd: "openssl pkcs12 -export -out /etc/ssl/app2/app2.pfx -inkey /etc/ssl/app2/key.pem -in /etc/ssl/app2/fullchain.pem -passout pass: && systemctl restart app2"
+
+  # ---------------------------------------------------------------------------
+  # A non-root service: files land as root, so the reload_cmd fixes ownership
+  # before restarting (e.g. a service that reads its key as its own user)
+  # ---------------------------------------------------------------------------
+  - name: app3
+    deploy_target: 192.0.2.13
+    deploy_user: root
+    remote_cert_path: /etc/ssl/app3/
+    remote_key_path: /etc/ssl/app3/
+    reload_cmd: "chown root:app3 /etc/ssl/app3/key.pem && chmod 640 /etc/ssl/app3/key.pem && systemctl restart app3"
+
+  # ---------------------------------------------------------------------------
+  # A host where deploy_user can't write the cert path directly (e.g. a
+  # non-root user with passwordless sudo) — transfer_sudo switches the writer
+  # from "cat > file" to "sudo tee file > /dev/null"
+  # ---------------------------------------------------------------------------
+  - name: app4
+    deploy_target: 192.0.2.14
+    deploy_user: someuser
+    remote_cert_path: /etc/ssl/app4/
+    remote_key_path: /etc/ssl/app4/
+    reload_cmd: "sudo systemctl restart app4"
+    transfer_sudo: true
+
+  # ---------------------------------------------------------------------------
+  # The workstation running this tool itself: deploy_target localhost/127.0.0.1
+  # skips SSH entirely and uses cp + direct execution instead
+  # ---------------------------------------------------------------------------
+  - name: localapp
+    deploy_target: localhost
+    deploy_user: root
+    remote_cert_path: /etc/ssl/localapp/
+    remote_key_path: /etc/ssl/localapp/
+    reload_cmd: "systemctl reload nginx"
+
+  # keylength: "2048" forces RSA instead of acme.sh's default ECC key, for an
+  # app/appliance that can't handle an ECC certificate
+  # - name: legacy-app
+  #   deploy_target: 192.0.2.15
+  #   deploy_user: root
+  #   remote_cert_path: /etc/ssl/legacy-app/
+  #   remote_key_path: /etc/ssl/legacy-app/
+  #   reload_cmd: "systemctl restart legacy-app"
+  #   keylength: "2048"
